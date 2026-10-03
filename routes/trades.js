@@ -6,9 +6,10 @@ const calculateNetPnl = require("../utils/pnl");
 
 router.get("/summary", requireAuth, async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM trades WHERE user_id = $1", [
-      req.userId,
-    ]);
+    const result = await pool.query(
+      "SELECT id, user_id, trade_date::text, symbol, direction, contracts, entry_price, exit_price, fees, strategy, screenshot_link, notes FROM trades WHERE user_id = $1",
+      [req.userId],
+    );
     const trades = result.rows.map((trade) => ({
       ...trade,
       netPnl: calculateNetPnl(trade),
@@ -38,13 +39,32 @@ router.get("/summary", requireAuth, async (req, res) => {
 
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM trades WHERE user_id = $1", [
-      req.userId,
-    ]);
+    const result = await pool.query(
+      "SELECT id, user_id, trade_date::text, symbol, direction, contracts, entry_price, exit_price, fees, strategy, screenshot_link, notes FROM trades WHERE user_id = $1",
+      [req.userId],
+    );
+
+    const ruleStatusResult = await pool.query(
+      `SELECT trade_rules.trade_id, bool_and(trade_rules.followed) AS all_followed
+       FROM trade_rules
+       JOIN trades ON trades.id = trade_rules.trade_id
+       WHERE trades.user_id = $1
+       GROUP BY trade_rules.trade_id`,
+      [req.userId],
+    );
+
+    const ruleStatusMap = new Map(
+      ruleStatusResult.rows.map((row) => [row.trade_id, row.all_followed]),
+    );
+
     const tradesWithPnl = result.rows.map((trade) => ({
       ...trade,
       netPnl: calculateNetPnl(trade),
+      rulesFollowed: ruleStatusMap.has(trade.id)
+        ? ruleStatusMap.get(trade.id)
+        : null,
     }));
+
     res.json({ trades: tradesWithPnl, count: result.rowCount });
   } catch (err) {
     console.error(err);
@@ -63,12 +83,14 @@ router.post("/", requireAuth, async (req, res) => {
       exit_price,
       fees,
       strategy,
+      screenshot_link,
+      notes,
     } = req.body;
 
     const result = await pool.query(
-      `INSERT INTO trades (user_id, trade_date, symbol, direction, contracts, entry_price, exit_price, fees, strategy)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
+      `INSERT INTO trades (user_id, trade_date, symbol, direction, contracts, entry_price, exit_price, fees, strategy, screenshot_link, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING id, user_id, trade_date::text, symbol, direction, contracts, entry_price, exit_price, fees, strategy, screenshot_link, notes`,
       [
         req.userId,
         trade_date,
@@ -79,6 +101,8 @@ router.post("/", requireAuth, async (req, res) => {
         exit_price,
         fees,
         strategy,
+        screenshot_link,
+        notes,
       ],
     );
 
@@ -94,7 +118,7 @@ router.get("/:id", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query(
-      "SELECT * FROM trades WHERE id = $1 AND user_id = $2",
+      "SELECT id, user_id, trade_date::text, symbol, direction, contracts, entry_price, exit_price, fees, strategy, screenshot_link, notes FROM trades WHERE id = $1 AND user_id = $2",
       [id, req.userId],
     );
 
@@ -132,7 +156,7 @@ router.put("/:id", requireAuth, async (req, res) => {
            entry_price = $5, exit_price = $6, fees = $7, strategy = $8,
            screenshot_link = $9, notes = $10
        WHERE id = $11 AND user_id = $12
-       RETURNING *`,
+       RETURNING id, user_id, trade_date::text, symbol, direction, contracts, entry_price, exit_price, fees, strategy, screenshot_link, notes`,
       [
         trade_date,
         symbol,
@@ -164,14 +188,22 @@ router.put("/:id", requireAuth, async (req, res) => {
 router.delete("/:id", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query(
-      "DELETE FROM trades WHERE id = $1 AND user_id = $2 RETURNING *",
+
+    const ownerCheck = await pool.query(
+      "SELECT id FROM trades WHERE id = $1 AND user_id = $2",
       [id, req.userId],
     );
-
-    if (result.rows.length === 0) {
+    if (ownerCheck.rows.length === 0) {
       return res.status(404).json({ error: "Trade not found." });
     }
+
+    await pool.query("DELETE FROM trade_rules WHERE trade_id = $1", [id]);
+    await pool.query("DELETE FROM answers WHERE trade_id = $1", [id]);
+
+    const result = await pool.query(
+      "DELETE FROM trades WHERE id = $1 AND user_id = $2 RETURNING id",
+      [id, req.userId],
+    );
 
     res.json({ message: "Trade deleted.", trade: result.rows[0] });
   } catch (err) {

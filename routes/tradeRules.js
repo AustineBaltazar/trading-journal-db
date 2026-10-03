@@ -135,4 +135,93 @@ router.delete(
   },
 );
 
+router.get("/rule-adherence", requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT rules.id AS rule_id, rules.name, trade_rules.followed, trade_rules.trade_id
+       FROM trade_rules
+       JOIN rules ON rules.id = trade_rules.rule_id
+       JOIN trades ON trades.id = trade_rules.trade_id
+       WHERE trades.user_id = $1`,
+      [req.userId],
+    );
+
+    const tradesResult = await pool.query(
+      "SELECT * FROM trades WHERE user_id = $1",
+      [req.userId],
+    );
+    const tradesById = new Map(tradesResult.rows.map((t) => [t.id, t]));
+
+    const ruleMap = new Map();
+    const tradeFollowedMap = new Map();
+
+    for (const row of result.rows) {
+      if (!ruleMap.has(row.rule_id)) {
+        ruleMap.set(row.rule_id, {
+          name: row.name,
+          total: 0,
+          followedCount: 0,
+        });
+      }
+      const ruleEntry = ruleMap.get(row.rule_id);
+      ruleEntry.total += 1;
+      if (row.followed) ruleEntry.followedCount += 1;
+
+      if (!tradeFollowedMap.has(row.trade_id)) {
+        tradeFollowedMap.set(row.trade_id, true);
+      }
+      if (!row.followed) {
+        tradeFollowedMap.set(row.trade_id, false);
+      }
+    }
+
+    const adherence = Array.from(ruleMap.values()).map((entry) => ({
+      name: entry.name,
+      total: entry.total,
+      followedCount: entry.followedCount,
+      percentage: Math.round((entry.followedCount / entry.total) * 100),
+    }));
+
+    const tradesWithRules = Array.from(tradeFollowedMap.entries());
+    const followedTradesCount = tradesWithRules.filter(
+      ([, allFollowed]) => allFollowed,
+    ).length;
+    const followedAllPercentage =
+      tradesWithRules.length > 0
+        ? Math.round((followedTradesCount / tradesWithRules.length) * 100)
+        : 0;
+
+    const calculateNetPnl = require("../utils/pnl");
+    const followedPnls = [];
+    const brokenPnls = [];
+
+    for (const [tradeId, allFollowed] of tradesWithRules) {
+      const trade = tradesById.get(tradeId);
+      if (!trade) continue;
+      const pnl = calculateNetPnl(trade);
+      if (allFollowed) followedPnls.push(pnl);
+      else brokenPnls.push(pnl);
+    }
+
+    const avg = (arr) =>
+      arr.length > 0
+        ? Math.round((arr.reduce((s, n) => s + n, 0) / arr.length) * 100) / 100
+        : 0;
+
+    res.json({
+      adherence,
+      followedAllPercentage,
+      followedTradesCount,
+      totalTradesWithRules: tradesWithRules.length,
+      avgPnlRulesFollowed: avg(followedPnls),
+      avgPnlRuleBroken: avg(brokenPnls),
+    });
+  } catch (err) {
+    console.error(err);
+    res
+      .status(500)
+      .json({ error: "Something went wrong calculating rule adherence." });
+  }
+});
+
 module.exports = router;
