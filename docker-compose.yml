@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: trading_journal
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 52425978qw
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
       - "5433:5432"
     volumes:
@@ -17,8 +17,8 @@ services:
       DB_PORT: 5432
       DB_NAME: trading_journal
       DB_USER: postgres
-      DB_PASSWORD: 52425978qw
-      JWT_SECRET: some_long_random_string_nobody_could_guess_12345
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
     ports:
       - "3001:3001"
     depends_on:
