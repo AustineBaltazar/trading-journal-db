@@ -45,7 +45,11 @@ async function headObject(key) {
     const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
     return { size: head.ContentLength, contentType: head.ContentType };
   } catch (err) {
-    if (err.$metadata?.httpStatusCode === 404 || err.name === "NotFound") return null;
+    // Without s3:ListBucket (the server role doesn't have it) S3 answers 403, not 404,
+    // for a key that doesn't exist. Keys are always under the user's own prefix, so
+    // either way it means the upload isn't there.
+    const status = err.$metadata?.httpStatusCode;
+    if (status === 404 || status === 403 || err.name === "NotFound") return null;
     throw err;
   }
 }
