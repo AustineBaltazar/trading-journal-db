@@ -29,6 +29,6 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd ~/trading-journal-backend && git pull origin main
+            cd ~/trading-journal && git pull origin main
             cd ~/trading-journal-frontend && git pull origin main
             cd ~/trading-journal && docker compose down && docker compose up -d --build
