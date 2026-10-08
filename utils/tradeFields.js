@@ -2,6 +2,7 @@ const SESSIONS = ["Asian", "London", "New York AM", "New York PM"];
 const EMOTIONS = ["Confident", "Anxious", "FOMO", "Revenge", "Calm", "Hesitant"];
 const GRADES = ["A+", "A", "B+", "B", "C+", "C", "D", "F"];
 const MODES = ["live", "backtest"];
+const RESULTS = ["win", "loss", "be"];
 
 // 24-hour HH:MM, optionally with :SS (what <input type="time"> can send)
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
@@ -9,21 +10,38 @@ const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
 // Columns returned for every trade. Times come back as HH:MM so they drop
 // straight into <input type="time">.
 const TRADE_COLUMNS = `id, user_id, trade_date::text, symbol, direction, contracts, entry_price, exit_price, fees, strategy, screenshot_link, notes,
-  to_char(entry_time, 'HH24:MI') AS entry_time, to_char(exit_time, 'HH24:MI') AS exit_time, session, emotion, grade, mode`;
+  to_char(entry_time, 'HH24:MI') AS entry_time, to_char(exit_time, 'HH24:MI') AS exit_time, session, emotions, grade, mode, result`;
 
 function blankToNull(value) {
   return value === undefined || value === null || value === "" ? null : value;
 }
 
+// Emotions as a list without repeats. Older clients send a single `emotion`.
+// Returns { emotions } (null when neither was sent) or { error }.
+function parseEmotions(body) {
+  let list;
+  if (body.emotions !== undefined && body.emotions !== null) list = body.emotions;
+  else if (body.emotion !== undefined) list = blankToNull(body.emotion) === null ? [] : [body.emotion];
+  else return { emotions: null };
+
+  if (!Array.isArray(list) || list.some((e) => !EMOTIONS.includes(e))) {
+    return { error: `emotions must be a list of: ${EMOTIONS.join(", ")}.` };
+  }
+  return { emotions: [...new Set(list)] };
+}
+
 // Validates the optional journal fields from a request body.
 // Returns { values } with normalized values, or { error } with a message.
+// emotions is null and resultSent false when the client didn't send them,
+// so an update can keep what's stored.
 function parseJournalFields(body) {
   const values = {
     entry_time: blankToNull(body.entry_time),
     exit_time: blankToNull(body.exit_time),
     session: blankToNull(body.session),
-    emotion: blankToNull(body.emotion),
     grade: blankToNull(body.grade),
+    result: blankToNull(body.result),
+    resultSent: Object.prototype.hasOwnProperty.call(body, "result"),
   };
 
   for (const field of ["entry_time", "exit_time"]) {
@@ -33,13 +51,17 @@ function parseJournalFields(body) {
     }
   }
 
-  const allowed = { session: SESSIONS, emotion: EMOTIONS, grade: GRADES };
+  const allowed = { session: SESSIONS, grade: GRADES, result: RESULTS };
   for (const [field, options] of Object.entries(allowed)) {
     const value = values[field];
     if (value !== null && !options.includes(value)) {
       return { error: `${field} must be one of: ${options.join(", ")}.` };
     }
   }
+
+  const parsed = parseEmotions(body);
+  if (parsed.error) return { error: parsed.error };
+  values.emotions = parsed.emotions;
 
   return { values };
 }
@@ -60,6 +82,7 @@ module.exports = {
   EMOTIONS,
   GRADES,
   MODES,
+  RESULTS,
   TRADE_COLUMNS,
   parseJournalFields,
   parseMode,
