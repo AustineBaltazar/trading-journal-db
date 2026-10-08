@@ -18,6 +18,24 @@ app.get("/", (req, res) => {
   res.send("My trading journal API is running!");
 });
 
+// For uptime monitoring: up only if the database answers within 3 seconds
+const pool = require("./db");
+app.get("/health", async (req, res) => {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("database timeout")), 3000);
+  });
+  try {
+    await Promise.race([pool.query("SELECT 1"), timeout]);
+    res.json({ status: "ok", database: "ok" });
+  } catch (err) {
+    console.error("Health check failed:", err.message);
+    res.status(503).json({ status: "down", database: "unreachable" });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 app.use("/", authRoutes);
 app.use("/trades", tradesRoutes);
 app.use("/rules", rulesRoutes);
