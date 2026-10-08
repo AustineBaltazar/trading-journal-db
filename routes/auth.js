@@ -4,6 +4,7 @@ const router = express.Router();
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const pool = require("../db");
+const { DEFAULT_MISTAKES } = require("../utils/mistakes");
 
 router.post("/register", async (req, res) => {
   try {
@@ -25,6 +26,11 @@ router.post("/register", async (req, res) => {
       `INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3)
        RETURNING id, name, email, created_at`,
       [name, email, passwordHash],
+    );
+
+    await pool.query(
+      "INSERT INTO mistakes (user_id, name) SELECT $1, unnest($2::text[])",
+      [result.rows[0].id, DEFAULT_MISTAKES],
     );
 
     res.status(201).json(result.rows[0]);
