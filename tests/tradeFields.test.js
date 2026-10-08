@@ -40,3 +40,23 @@ test.each([
   const result = parseJournalFields(body);
   expect(result.error).toMatch(new RegExp(`^${field} `));
 });
+
+describe("parseMode", () => {
+  const { parseMode } = require("../utils/tradeFields");
+
+  test("accepts live and backtest", () => {
+    expect(parseMode("live")).toEqual({ mode: "live" });
+    expect(parseMode("backtest")).toEqual({ mode: "backtest" });
+  });
+
+  test("falls back when missing", () => {
+    expect(parseMode(undefined)).toEqual({ mode: "live" });
+    expect(parseMode("")).toEqual({ mode: "live" });
+    expect(parseMode(undefined, null)).toEqual({ mode: null });
+  });
+
+  test("rejects anything else", () => {
+    expect(parseMode("paper").error).toMatch(/^mode must be one of/);
+    expect(parseMode(["live"]).error).toMatch(/^mode must be one of/);
+  });
+});
