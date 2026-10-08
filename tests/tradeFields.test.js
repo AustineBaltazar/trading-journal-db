@@ -5,16 +5,19 @@ test("accepts valid journal fields", () => {
     entry_time: "09:30",
     exit_time: "10:15:00",
     session: "New York AM",
-    emotion: "FOMO",
+    emotions: ["FOMO", "Anxious"],
     grade: "B+",
+    result: "be",
   });
   expect(result.error).toBeUndefined();
   expect(result.values).toEqual({
     entry_time: "09:30",
     exit_time: "10:15:00",
     session: "New York AM",
-    emotion: "FOMO",
+    emotions: ["FOMO", "Anxious"],
     grade: "B+",
+    result: "be",
+    resultSent: true,
   });
 });
 
@@ -24,8 +27,10 @@ test("treats missing or blank fields as null", () => {
     entry_time: null,
     exit_time: null,
     session: null,
-    emotion: null,
+    emotions: null,
     grade: null,
+    result: null,
+    resultSent: false,
   });
 });
 
@@ -34,8 +39,11 @@ test.each([
   [{ exit_time: "9:30" }, "exit_time"],
   [{ entry_time: 930 }, "entry_time"],
   [{ session: "Tokyo" }, "session"],
-  [{ emotion: "calm" }, "emotion"],
+  [{ emotion: "calm" }, "emotions"],
+  [{ emotions: ["Calm", "Bored"] }, "emotions"],
+  [{ emotions: "Calm" }, "emotions"],
   [{ grade: "E" }, "grade"],
+  [{ result: "draw" }, "result"],
 ])("rejects invalid input %o", (body, field) => {
   const result = parseJournalFields(body);
   expect(result.error).toMatch(new RegExp(`^${field} `));
@@ -59,4 +67,23 @@ describe("parseMode", () => {
     expect(parseMode("paper").error).toMatch(/^mode must be one of/);
     expect(parseMode(["live"]).error).toMatch(/^mode must be one of/);
   });
+});
+
+describe("emotions", () => {
+  test("a single emotion from older clients becomes a list", () => {
+    expect(parseJournalFields({ emotion: "Calm" }).values.emotions).toEqual(["Calm"]);
+    expect(parseJournalFields({ emotion: "" }).values.emotions).toEqual([]);
+  });
+
+  test("repeats are dropped and order kept", () => {
+    expect(parseJournalFields({ emotions: ["FOMO", "Calm", "FOMO"] }).values.emotions).toEqual(["FOMO", "Calm"]);
+  });
+
+  test("an empty list clears them", () => {
+    expect(parseJournalFields({ emotions: [] }).values.emotions).toEqual([]);
+  });
+});
+
+test("result null means auto, and is still marked as sent", () => {
+  expect(parseJournalFields({ result: null }).values).toMatchObject({ result: null, resultSent: true });
 });

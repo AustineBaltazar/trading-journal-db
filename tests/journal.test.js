@@ -2,8 +2,10 @@ const {
   parseEntryDate,
   parseMonth,
   parseEntryFields,
+  parseImageFile,
   parseImageRequest,
   userImagePrefix,
+  userTradeImagePrefix,
 } = require("../utils/journal");
 
 describe("parseEntryDate", () => {
@@ -75,4 +77,14 @@ describe("parseImageRequest", () => {
 
 test("image keys live under the owner's prefix", () => {
   expect(userImagePrefix(11)).toBe("users/11/journal/");
+  expect(userTradeImagePrefix(11)).toBe("users/11/trades/");
+});
+
+test("trade screenshots need no section", () => {
+  expect(parseImageFile({ content_type: "image/webp", size_bytes: 10 })).toEqual({
+    contentType: "image/webp",
+    size: 10,
+    ext: "webp",
+  });
+  expect(parseImageFile({ content_type: "image/gif", size_bytes: 10 }).error).toBeDefined();
 });

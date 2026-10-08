@@ -84,20 +84,29 @@ function parseEntryFields(body) {
 }
 
 // Checks an image upload request. Returns { section, contentType, size, ext } or { error }.
-function parseImageRequest(body) {
-  const section = body?.section;
+// Type and size of a file the browser wants to upload (journal or trade)
+function parseImageFile(body) {
   const contentType = body?.content_type;
   const size = Number(body?.size_bytes);
-  if (!SECTIONS.includes(section)) return { error: "section must be pre or post." };
   if (!IMAGE_TYPES[contentType]) return { error: "Images must be PNG, JPG or WebP." };
   if (!Number.isInteger(size) || size <= 0) return { error: "size_bytes is required." };
   if (size > MAX_IMAGE_BYTES) return { error: "Images must be 5 MB or smaller." };
-  return { section, contentType, size, ext: IMAGE_TYPES[contentType] };
+  return { contentType, size, ext: IMAGE_TYPES[contentType] };
+}
+
+function parseImageRequest(body) {
+  if (!SECTIONS.includes(body?.section)) return { error: "section must be pre or post." };
+  const file = parseImageFile(body);
+  return file.error ? file : { section: body.section, ...file };
 }
 
 // Every image lives under the owner's prefix, so ownership can be checked from the key
 function userImagePrefix(userId) {
   return `users/${userId}/journal/`;
+}
+
+function userTradeImagePrefix(userId) {
+  return `users/${userId}/trades/`;
 }
 
 module.exports = {
@@ -106,11 +115,14 @@ module.exports = {
   MOODS,
   DAY_GRADES,
   SECTIONS,
+  IMAGE_TYPES,
   MAX_IMAGE_BYTES,
   MAX_IMAGES_PER_SECTION,
   parseEntryDate,
   parseMonth,
   parseEntryFields,
+  parseImageFile,
   parseImageRequest,
   userImagePrefix,
+  userTradeImagePrefix,
 };
