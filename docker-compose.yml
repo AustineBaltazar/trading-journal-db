@@ -21,6 +21,8 @@ services:
       DB_USER: postgres
       DB_PASSWORD: ${DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      AWS_REGION: ${AWS_REGION:-ap-southeast-1}
+      IMAGES_BUCKET: ${IMAGES_BUCKET:-}
     ports:
       - "3001:3001"
     depends_on:
