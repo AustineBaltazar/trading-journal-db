@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db");
 const requireAuth = require("../middleware/auth");
+const { parseMode } = require("../utils/tradeFields");
 
 router.post("/trade-rules", requireAuth, async (req, res) => {
   try {
@@ -137,18 +138,21 @@ router.delete(
 
 router.get("/rule-adherence", requireAuth, async (req, res) => {
   try {
+    const { mode, error } = parseMode(req.query.mode);
+    if (error) return res.status(400).json({ error });
+
     const result = await pool.query(
       `SELECT rules.id AS rule_id, rules.name, trade_rules.followed, trade_rules.trade_id
        FROM trade_rules
        JOIN rules ON rules.id = trade_rules.rule_id
        JOIN trades ON trades.id = trade_rules.trade_id
-       WHERE trades.user_id = $1`,
-      [req.userId],
+       WHERE trades.user_id = $1 AND trades.mode = $2`,
+      [req.userId, mode],
     );
 
     const tradesResult = await pool.query(
-      "SELECT * FROM trades WHERE user_id = $1",
-      [req.userId],
+      "SELECT * FROM trades WHERE user_id = $1 AND mode = $2",
+      [req.userId, mode],
     );
     const tradesById = new Map(tradesResult.rows.map((t) => [t.id, t]));
 

@@ -3,13 +3,20 @@ const router = express.Router();
 const pool = require("../db");
 const requireAuth = require("../middleware/auth");
 const calculateNetPnl = require("../utils/pnl");
-const { TRADE_COLUMNS, parseJournalFields } = require("../utils/tradeFields");
+const {
+  TRADE_COLUMNS,
+  parseJournalFields,
+  parseMode,
+} = require("../utils/tradeFields");
 
 router.get("/summary", requireAuth, async (req, res) => {
   try {
+    const { mode, error } = parseMode(req.query.mode);
+    if (error) return res.status(400).json({ error });
+
     const result = await pool.query(
-      `SELECT ${TRADE_COLUMNS} FROM trades WHERE user_id = $1`,
-      [req.userId],
+      `SELECT ${TRADE_COLUMNS} FROM trades WHERE user_id = $1 AND mode = $2`,
+      [req.userId, mode],
     );
     const trades = result.rows.map((trade) => ({
       ...trade,
@@ -40,18 +47,21 @@ router.get("/summary", requireAuth, async (req, res) => {
 
 router.get("/", requireAuth, async (req, res) => {
   try {
+    const { mode, error } = parseMode(req.query.mode);
+    if (error) return res.status(400).json({ error });
+
     const result = await pool.query(
-      `SELECT ${TRADE_COLUMNS} FROM trades WHERE user_id = $1`,
-      [req.userId],
+      `SELECT ${TRADE_COLUMNS} FROM trades WHERE user_id = $1 AND mode = $2`,
+      [req.userId, mode],
     );
 
     const ruleStatusResult = await pool.query(
       `SELECT trade_rules.trade_id, bool_and(trade_rules.followed) AS all_followed
        FROM trade_rules
        JOIN trades ON trades.id = trade_rules.trade_id
-       WHERE trades.user_id = $1
+       WHERE trades.user_id = $1 AND trades.mode = $2
        GROUP BY trade_rules.trade_id`,
-      [req.userId],
+      [req.userId, mode],
     );
 
     const ruleStatusMap = new Map(
@@ -94,10 +104,15 @@ router.post("/", requireAuth, async (req, res) => {
     }
     const { entry_time, exit_time, session, emotion, grade } = journal.values;
 
+    const parsedMode = parseMode(req.body.mode);
+    if (parsedMode.error) {
+      return res.status(400).json({ error: parsedMode.error });
+    }
+
     const result = await pool.query(
       `INSERT INTO trades (user_id, trade_date, symbol, direction, contracts, entry_price, exit_price, fees, strategy, screenshot_link, notes,
-                           entry_time, exit_time, session, emotion, grade)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                           entry_time, exit_time, session, emotion, grade, mode)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
        RETURNING ${TRADE_COLUMNS}`,
       [
         req.userId,
@@ -116,6 +131,7 @@ router.post("/", requireAuth, async (req, res) => {
         session,
         emotion,
         grade,
+        parsedMode.mode,
       ],
     );
 
@@ -169,13 +185,19 @@ router.put("/:id", requireAuth, async (req, res) => {
     }
     const { entry_time, exit_time, session, emotion, grade } = journal.values;
 
+    const parsedMode = parseMode(req.body.mode, null);
+    if (parsedMode.error) {
+      return res.status(400).json({ error: parsedMode.error });
+    }
+
     const result = await pool.query(
       `UPDATE trades
        SET trade_date = $1, symbol = $2, direction = $3, contracts = $4,
            entry_price = $5, exit_price = $6, fees = $7, strategy = $8,
            screenshot_link = $9, notes = $10,
-           entry_time = $11, exit_time = $12, session = $13, emotion = $14, grade = $15
-       WHERE id = $16 AND user_id = $17
+           entry_time = $11, exit_time = $12, session = $13, emotion = $14, grade = $15,
+           mode = COALESCE($16, mode)
+       WHERE id = $17 AND user_id = $18
        RETURNING ${TRADE_COLUMNS}`,
       [
         trade_date,
@@ -193,6 +215,7 @@ router.put("/:id", requireAuth, async (req, res) => {
         session,
         emotion,
         grade,
+        parsedMode.mode,
         id,
         req.userId,
       ],

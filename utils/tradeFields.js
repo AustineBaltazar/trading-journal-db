@@ -1,6 +1,7 @@
 const SESSIONS = ["Asian", "London", "New York AM", "New York PM"];
 const EMOTIONS = ["Confident", "Anxious", "FOMO", "Revenge", "Calm", "Hesitant"];
 const GRADES = ["A+", "A", "B+", "B", "C+", "C", "D", "F"];
+const MODES = ["live", "backtest"];
 
 // 24-hour HH:MM, optionally with :SS (what <input type="time"> can send)
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
@@ -8,7 +9,7 @@ const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
 // Columns returned for every trade. Times come back as HH:MM so they drop
 // straight into <input type="time">.
 const TRADE_COLUMNS = `id, user_id, trade_date::text, symbol, direction, contracts, entry_price, exit_price, fees, strategy, screenshot_link, notes,
-  to_char(entry_time, 'HH24:MI') AS entry_time, to_char(exit_time, 'HH24:MI') AS exit_time, session, emotion, grade`;
+  to_char(entry_time, 'HH24:MI') AS entry_time, to_char(exit_time, 'HH24:MI') AS exit_time, session, emotion, grade, mode`;
 
 function blankToNull(value) {
   return value === undefined || value === null || value === "" ? null : value;
@@ -43,10 +44,23 @@ function parseJournalFields(body) {
   return { values };
 }
 
+// Mode from a query string or body. Missing means the fallback (live for
+// reads and new trades; the trade's current mode for updates).
+// Returns { mode } or { error }.
+function parseMode(value, fallback = "live") {
+  if (value === undefined || value === null || value === "") return { mode: fallback };
+  if (!MODES.includes(value)) {
+    return { error: `mode must be one of: ${MODES.join(", ")}.` };
+  }
+  return { mode: value };
+}
+
 module.exports = {
   SESSIONS,
   EMOTIONS,
   GRADES,
+  MODES,
   TRADE_COLUMNS,
   parseJournalFields,
+  parseMode,
 };
