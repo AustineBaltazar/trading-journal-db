@@ -68,12 +68,23 @@ router.get("/", requireAuth, async (req, res) => {
       ruleStatusResult.rows.map((row) => [row.trade_id, row.all_followed]),
     );
 
+    const mistakesResult = await pool.query(
+      `SELECT trade_mistakes.trade_id, array_agg(trade_mistakes.mistake_id ORDER BY trade_mistakes.mistake_id) AS ids
+       FROM trade_mistakes
+       JOIN trades ON trades.id = trade_mistakes.trade_id
+       WHERE trades.user_id = $1 AND trades.mode = $2
+       GROUP BY trade_mistakes.trade_id`,
+      [req.userId, mode],
+    );
+    const mistakesMap = new Map(mistakesResult.rows.map((row) => [row.trade_id, row.ids]));
+
     const tradesWithPnl = result.rows.map((trade) => ({
       ...trade,
       netPnl: calculateNetPnl(trade),
       rulesFollowed: ruleStatusMap.has(trade.id)
         ? ruleStatusMap.get(trade.id)
         : null,
+      mistakeIds: mistakesMap.get(trade.id) || [],
     }));
 
     res.json({ trades: tradesWithPnl, count: result.rowCount });
@@ -155,8 +166,17 @@ router.get("/:id", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Trade not found." });
     }
 
+    const mistakes = await pool.query(
+      "SELECT mistake_id FROM trade_mistakes WHERE trade_id = $1 ORDER BY mistake_id",
+      [id],
+    );
+
     const trade = result.rows[0];
-    res.json({ ...trade, netPnl: calculateNetPnl(trade) });
+    res.json({
+      ...trade,
+      netPnl: calculateNetPnl(trade),
+      mistakeIds: mistakes.rows.map((row) => row.mistake_id),
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Something went wrong fetching the trade." });
