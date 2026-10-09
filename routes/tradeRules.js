@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require("../db");
 const requireAuth = require("../middleware/auth");
 const { parseMode } = require("../utils/tradeFields");
+const { parseEntryDate } = require("../utils/journal");
 
 router.post("/trade-rules", requireAuth, async (req, res) => {
   try {
@@ -136,23 +137,32 @@ router.delete(
   },
 );
 
+// Optional ?from=YYYY-MM-DD&to=YYYY-MM-DD limits it to trades in that range (Reports filter)
 router.get("/rule-adherence", requireAuth, async (req, res) => {
   try {
     const { mode, error } = parseMode(req.query.mode);
     if (error) return res.status(400).json({ error });
+    const range = {};
+    for (const key of ["from", "to"]) {
+      if (req.query[key] === undefined || req.query[key] === "") continue;
+      range[key] = parseEntryDate(req.query[key]);
+      if (!range[key]) return res.status(400).json({ error: `${key} must be a date (YYYY-MM-DD).` });
+    }
+    const inRange = "($3::date IS NULL OR trades.trade_date >= $3) AND ($4::date IS NULL OR trades.trade_date <= $4)";
+    const params = [req.userId, mode, range.from || null, range.to || null];
 
     const result = await pool.query(
       `SELECT rules.id AS rule_id, rules.name, trade_rules.followed, trade_rules.trade_id
        FROM trade_rules
        JOIN rules ON rules.id = trade_rules.rule_id
        JOIN trades ON trades.id = trade_rules.trade_id
-       WHERE trades.user_id = $1 AND trades.mode = $2`,
-      [req.userId, mode],
+       WHERE trades.user_id = $1 AND trades.mode = $2 AND ${inRange}`,
+      params,
     );
 
     const tradesResult = await pool.query(
-      "SELECT * FROM trades WHERE user_id = $1 AND mode = $2",
-      [req.userId, mode],
+      `SELECT * FROM trades WHERE user_id = $1 AND mode = $2 AND ${inRange}`,
+      params,
     );
     const tradesById = new Map(tradesResult.rows.map((t) => [t.id, t]));
 
