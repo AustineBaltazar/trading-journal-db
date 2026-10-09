@@ -5,6 +5,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const pool = require("../db");
 const { DEFAULT_MISTAKES } = require("../utils/mistakes");
+const { DEFAULT_TAG_GROUPS } = require("../utils/tags");
 
 router.post("/register", async (req, res) => {
   try {
@@ -32,6 +33,19 @@ router.post("/register", async (req, res) => {
       "INSERT INTO mistakes (user_id, name) SELECT $1, unnest($2::text[])",
       [result.rows[0].id, DEFAULT_MISTAKES],
     );
+
+    for (const [position, group] of DEFAULT_TAG_GROUPS.entries()) {
+      const created = await pool.query(
+        "INSERT INTO tag_groups (user_id, name, position) VALUES ($1, $2, $3) RETURNING id",
+        [result.rows[0].id, group.name, position],
+      );
+      if (group.tags.length > 0) {
+        await pool.query("INSERT INTO tags (group_id, name) SELECT $1, unnest($2::text[])", [
+          created.rows[0].id,
+          group.tags,
+        ]);
+      }
+    }
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
