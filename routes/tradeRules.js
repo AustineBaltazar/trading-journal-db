@@ -3,7 +3,8 @@ const router = express.Router();
 const pool = require("../db");
 const requireAuth = require("../middleware/auth");
 const { parseMode } = require("../utils/tradeFields");
-const { parseEntryDate } = require("../utils/journal");
+const { parseRange } = require("../utils/range");
+const calculateNetPnl = require("../utils/pnl");
 
 router.post("/trade-rules", requireAuth, async (req, res) => {
   try {
@@ -142,12 +143,8 @@ router.get("/rule-adherence", requireAuth, async (req, res) => {
   try {
     const { mode, error } = parseMode(req.query.mode);
     if (error) return res.status(400).json({ error });
-    const range = {};
-    for (const key of ["from", "to"]) {
-      if (req.query[key] === undefined || req.query[key] === "") continue;
-      range[key] = parseEntryDate(req.query[key]);
-      if (!range[key]) return res.status(400).json({ error: `${key} must be a date (YYYY-MM-DD).` });
-    }
+    const range = parseRange(req.query);
+    if (range.error) return res.status(400).json({ error: range.error });
     const inRange = "($3::date IS NULL OR trades.trade_date >= $3) AND ($4::date IS NULL OR trades.trade_date <= $4)";
     const params = [req.userId, mode, range.from || null, range.to || null];
 
@@ -172,14 +169,21 @@ router.get("/rule-adherence", requireAuth, async (req, res) => {
     for (const row of result.rows) {
       if (!ruleMap.has(row.rule_id)) {
         ruleMap.set(row.rule_id, {
+          ruleId: row.rule_id,
           name: row.name,
           total: 0,
           followedCount: 0,
+          followedPnls: [],
+          brokenPnls: [],
         });
       }
       const ruleEntry = ruleMap.get(row.rule_id);
       ruleEntry.total += 1;
       if (row.followed) ruleEntry.followedCount += 1;
+      const ruleTrade = tradesById.get(row.trade_id);
+      if (ruleTrade) {
+        (row.followed ? ruleEntry.followedPnls : ruleEntry.brokenPnls).push(calculateNetPnl(ruleTrade));
+      }
 
       if (!tradeFollowedMap.has(row.trade_id)) {
         tradeFollowedMap.set(row.trade_id, true);
@@ -189,11 +193,20 @@ router.get("/rule-adherence", requireAuth, async (req, res) => {
       }
     }
 
+    const avg = (arr) =>
+      arr.length > 0
+        ? Math.round((arr.reduce((s, n) => s + n, 0) / arr.length) * 100) / 100
+        : 0;
+
+    // Per rule: how often it's followed, and the average trade P/L when it is and isn't
     const adherence = Array.from(ruleMap.values()).map((entry) => ({
+      ruleId: entry.ruleId,
       name: entry.name,
       total: entry.total,
       followedCount: entry.followedCount,
       percentage: Math.round((entry.followedCount / entry.total) * 100),
+      avgPnlFollowed: entry.followedPnls.length ? avg(entry.followedPnls) : null,
+      avgPnlBroken: entry.brokenPnls.length ? avg(entry.brokenPnls) : null,
     }));
 
     const tradesWithRules = Array.from(tradeFollowedMap.entries());
@@ -205,7 +218,6 @@ router.get("/rule-adherence", requireAuth, async (req, res) => {
         ? Math.round((followedTradesCount / tradesWithRules.length) * 100)
         : 0;
 
-    const calculateNetPnl = require("../utils/pnl");
     const followedPnls = [];
     const brokenPnls = [];
 
@@ -216,11 +228,6 @@ router.get("/rule-adherence", requireAuth, async (req, res) => {
       if (allFollowed) followedPnls.push(pnl);
       else brokenPnls.push(pnl);
     }
-
-    const avg = (arr) =>
-      arr.length > 0
-        ? Math.round((arr.reduce((s, n) => s + n, 0) / arr.length) * 100) / 100
-        : 0;
 
     res.json({
       adherence,

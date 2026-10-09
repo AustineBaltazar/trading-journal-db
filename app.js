@@ -13,6 +13,7 @@ const tradeAnswersRoutes = require("./routes/tradeAnswers");
 const mistakesRoutes = require("./routes/mistakes");
 const journalRoutes = require("./routes/journal");
 const tradeImagesRoutes = require("./routes/tradeImages");
+const tagsRoutes = require("./routes/tags");
 
 app.get("/", (req, res) => {
   res.send("My trading journal API is running!");
@@ -45,5 +46,6 @@ app.use("/", tradeAnswersRoutes);
 app.use("/", mistakesRoutes);
 app.use("/", journalRoutes);
 app.use("/", tradeImagesRoutes);
+app.use("/", tagsRoutes);
 
 module.exports = app;
