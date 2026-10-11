@@ -21,10 +21,16 @@ const { loginLimiter, registerLimiter, emailLimiter } = require("../utils/rateLi
 const { issueToken, peekToken, consumeToken, shouldNotify } = require("../utils/emailTokens");
 const { sendMail } = require("../utils/mailer");
 const emails = require("../utils/emails");
-const { isDemo } = require("../utils/account");
+const { isDemo, isAdmin } = require("../utils/account");
 const { verifyGoogleCredential } = require("../utils/google");
 
-const publicUser = (user) => ({ id: user.id, name: user.name, email: user.email, demo: isDemo(user.email) });
+const publicUser = (user) => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  demo: isDemo(user.email),
+  ...(isAdmin(user.email) ? { admin: true } : {}),
+});
 const client = (req) => ({ ip: req.ip, userAgent: req.get("user-agent") });
 const CHECK_EMAIL = { message: "Check your email." };
 const BAD_LINK = { error: "This link has expired or was already used.", expired: true };

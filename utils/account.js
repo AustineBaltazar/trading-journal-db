@@ -22,6 +22,14 @@ async function storageProblem(db, userId, size) {
 // The demo account anyone can log into is read-only, so visitors can't change or delete it
 const demoEmail = () => (process.env.DEMO_EMAIL || "giyotest@example.com").toLowerCase();
 const isDemo = (email) => typeof email === "string" && email.toLowerCase() === demoEmail();
+// Admin pages (the feedback inbox) are for these accounts only (ADMIN_EMAILS, comma-separated)
+const adminEmails = () =>
+  (process.env.ADMIN_EMAILS || "brotradingjournal@gmail.com")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+const isAdmin = (email) => typeof email === "string" && adminEmails().includes(email.toLowerCase());
+
 const DEMO_READ_ONLY = {
   error: "This is the demo account, so it's read-only. Sign up free to keep your own journal.",
   demo: true,
@@ -48,4 +56,4 @@ function toCsv(columns, rows) {
   return [columns.join(","), ...rows.map((row) => columns.map((c) => csvCell(row[c])).join(","))].join("\r\n");
 }
 
-module.exports = { STORAGE_LIMIT_BYTES, usedStorageBytes, storageProblem, isDemo, DEMO_READ_ONLY, maskIp, toCsv, csvCell };
+module.exports = { STORAGE_LIMIT_BYTES, usedStorageBytes, storageProblem, isDemo, isAdmin, DEMO_READ_ONLY, maskIp, toCsv, csvCell };
