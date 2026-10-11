@@ -14,6 +14,7 @@ const {
   userImagePrefix,
 } = require("../utils/journal");
 const s3 = require("../utils/s3");
+const { storageProblem } = require("../utils/account");
 
 const ENTRY_COLUMNS = `id, mode, entry_date::text, bias, bias_reason, key_levels, plan, news, focus,
   followed_plan, mood, day_grade, went_well, to_fix, lesson, updated_at`;
@@ -152,6 +153,8 @@ router.post("/journal/:date/images/upload-url", requireAuth, async (req, res) =>
     if (count.rows[0].n >= MAX_IMAGES_PER_SECTION) {
       return res.status(400).json({ error: `Up to ${MAX_IMAGES_PER_SECTION} images per section.` });
     }
+    const full = await storageProblem(pool, req.userId, img.size);
+    if (full) return res.status(400).json({ error: full });
     const key = `${userImagePrefix(req.userId)}${entryId}/${crypto.randomUUID()}.${img.ext}`;
     res.json({ key, uploadUrl: await s3.uploadUrl(key, img.contentType, img.size) });
   } catch (err) {

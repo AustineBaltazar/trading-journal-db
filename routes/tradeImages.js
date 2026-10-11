@@ -10,6 +10,7 @@ const {
   userTradeImagePrefix,
 } = require("../utils/journal");
 const s3 = require("../utils/s3");
+const { storageProblem } = require("../utils/account");
 
 const MAX_IMAGES_PER_TRADE = 6;
 
@@ -34,6 +35,8 @@ router.post("/trades/:id/images/upload-url", requireAuth, async (req, res) => {
     if (count.rows[0].n >= MAX_IMAGES_PER_TRADE) {
       return res.status(400).json({ error: `Up to ${MAX_IMAGES_PER_TRADE} screenshots per trade.` });
     }
+    const full = await storageProblem(pool, req.userId, file.size);
+    if (full) return res.status(400).json({ error: full });
     const key = `${userTradeImagePrefix(req.userId)}${tradeId}/${crypto.randomUUID()}.${file.ext}`;
     res.json({ key, uploadUrl: await s3.uploadUrl(key, file.contentType, file.size) });
   } catch (err) {
