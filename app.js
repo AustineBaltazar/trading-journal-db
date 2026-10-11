@@ -1,8 +1,30 @@
 const express = require("express");
 const app = express();
 const cors = require("cors");
+const helmet = require("helmet");
+const cookieParser = require("cookie-parser");
+
+// Pages that may call the API with the login cookie
+const allowedOrigins = (process.env.APP_ORIGINS || "http://localhost:4200,http://localhost:4300")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+// Nginx on the same host passes the visitor's IP in X-Forwarded-For
+app.set("trust proxy", process.env.TRUST_PROXY || "loopback, uniquelocal");
+app.use(helmet());
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
-app.use(cors());
+app.use(cookieParser());
+
+// Writes from another site are refused (the SameSite cookie already blocks most)
+app.use((req, res, next) => {
+  const origin = req.get("origin");
+  if (["GET", "HEAD", "OPTIONS"].includes(req.method) || !origin || allowedOrigins.includes(origin)) {
+    return next();
+  }
+  res.status(403).json({ error: "Request blocked." });
+});
 
 const authRoutes = require("./routes/auth");
 const tradesRoutes = require("./routes/trades");
