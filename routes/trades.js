@@ -7,6 +7,7 @@ const s3 = require("../utils/s3");
 const {
   TRADE_COLUMNS,
   parseJournalFields,
+  parseStops,
   parseMode,
 } = require("../utils/tradeFields");
 
@@ -72,12 +73,23 @@ router.get("/", requireAuth, async (req, res) => {
     );
     const mistakesMap = new Map(mistakesResult.rows.map((row) => [row.trade_id, row.ids]));
 
+    const tagsResult = await pool.query(
+      `SELECT trade_tags.trade_id, array_agg(trade_tags.tag_id ORDER BY trade_tags.tag_id) AS ids
+       FROM trade_tags
+       JOIN trades ON trades.id = trade_tags.trade_id
+       WHERE trades.user_id = $1 AND trades.mode = $2
+       GROUP BY trade_tags.trade_id`,
+      [req.userId, mode],
+    );
+    const tagsMap = new Map(tagsResult.rows.map((row) => [row.trade_id, row.ids]));
+
     const tradesWithPnl = result.rows.map((trade) => ({
       ...withPnl(trade),
       rulesFollowed: ruleStatusMap.has(trade.id)
         ? ruleStatusMap.get(trade.id)
         : null,
       mistakeIds: mistakesMap.get(trade.id) || [],
+      tagIds: tagsMap.get(trade.id) || [],
     }));
 
     res.json({ trades: tradesWithPnl, count: result.rowCount });
@@ -112,11 +124,13 @@ router.post("/", requireAuth, async (req, res) => {
     if (parsedMode.error) {
       return res.status(400).json({ error: parsedMode.error });
     }
+    const stops = parseStops(req.body);
+    if (stops.error) return res.status(400).json({ error: stops.error });
 
     const result = await pool.query(
       `INSERT INTO trades (user_id, trade_date, symbol, direction, contracts, entry_price, exit_price, fees, strategy, screenshot_link, notes,
-                           entry_time, exit_time, session, emotions, emotion, grade, mode, result)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, ($15::text[])[1], $16, $17, $18)
+                           entry_time, exit_time, session, emotions, emotion, grade, mode, result, stop_price, target_price)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, ($15::text[])[1], $16, $17, $18, $19, $20)
        RETURNING ${TRADE_COLUMNS}`,
       [
         req.userId,
@@ -137,6 +151,8 @@ router.post("/", requireAuth, async (req, res) => {
         grade,
         parsedMode.mode,
         outcome,
+        stops.values.stop_price,
+        stops.values.target_price,
       ],
     );
 
@@ -168,10 +184,12 @@ router.get("/:id", requireAuth, async (req, res) => {
       "SELECT id, caption, s3_key, created_at FROM trade_images WHERE trade_id = $1 ORDER BY id",
       [id],
     );
+    const tags = await pool.query("SELECT tag_id FROM trade_tags WHERE trade_id = $1 ORDER BY tag_id", [id]);
 
     res.json({
       ...withPnl(result.rows[0]),
       mistakeIds: mistakes.rows.map((row) => row.mistake_id),
+      tagIds: tags.rows.map((row) => row.tag_id),
       images: s3.imagesConfigured() ? await withViewUrls(images.rows) : [],
     });
   } catch (err) {
@@ -206,6 +224,8 @@ router.put("/:id", requireAuth, async (req, res) => {
     if (parsedMode.error) {
       return res.status(400).json({ error: parsedMode.error });
     }
+    const stops = parseStops(req.body);
+    if (stops.error) return res.status(400).json({ error: stops.error });
 
     const result = await pool.query(
       `UPDATE trades
@@ -217,7 +237,9 @@ router.put("/:id", requireAuth, async (req, res) => {
            emotion = (COALESCE($14::text[], emotions))[1],
            grade = $15,
            mode = COALESCE($16, mode),
-           result = CASE WHEN $19 THEN $20 ELSE result END
+           result = CASE WHEN $19 THEN $20 ELSE result END,
+           stop_price = CASE WHEN $21 THEN $22::numeric ELSE stop_price END,
+           target_price = CASE WHEN $21 THEN $23::numeric ELSE target_price END
        WHERE id = $17 AND user_id = $18
        RETURNING ${TRADE_COLUMNS}`,
       [
@@ -241,6 +263,9 @@ router.put("/:id", requireAuth, async (req, res) => {
         req.userId,
         resultSent,
         outcome,
+        stops.values.stopsSent,
+        stops.values.stop_price,
+        stops.values.target_price,
       ],
     );
 

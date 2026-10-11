@@ -10,7 +10,7 @@ const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
 // Columns returned for every trade. Times come back as HH:MM so they drop
 // straight into <input type="time">.
 const TRADE_COLUMNS = `id, user_id, trade_date::text, symbol, direction, contracts, entry_price, exit_price, fees, strategy, screenshot_link, notes,
-  to_char(entry_time, 'HH24:MI') AS entry_time, to_char(exit_time, 'HH24:MI') AS exit_time, session, emotions, grade, mode, result`;
+  to_char(entry_time, 'HH24:MI') AS entry_time, to_char(exit_time, 'HH24:MI') AS exit_time, session, emotions, grade, mode, result, stop_price, target_price`;
 
 function blankToNull(value) {
   return value === undefined || value === null || value === "" ? null : value;
@@ -66,6 +66,35 @@ function parseJournalFields(body) {
   return { values };
 }
 
+// Optional stop and target. Each must sit on the right side of the entry
+// (long: stop below, target above; short: the other way round).
+// Returns { values: { stop_price, target_price, stopsSent } } or { error }.
+// stopsSent is false when the client sent neither, so an update keeps what's stored.
+function parseStops(body) {
+  const values = { stop_price: null, target_price: null };
+  const stopsSent = ["stop_price", "target_price"].some((k) => Object.prototype.hasOwnProperty.call(body, k));
+  for (const field of ["stop_price", "target_price"]) {
+    const raw = blankToNull(body[field]);
+    if (raw === null) continue;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) return { error: `${field} must be a price.` };
+    values[field] = value;
+  }
+  const entry = Number(body.entry_price);
+  const long = body.direction === "long";
+  if (values.stop_price !== null && Number.isFinite(entry)) {
+    if (long ? values.stop_price >= entry : values.stop_price <= entry) {
+      return { error: `The stop for a ${long ? "long" : "short"} must be ${long ? "below" : "above"} the entry.` };
+    }
+  }
+  if (values.target_price !== null && Number.isFinite(entry)) {
+    if (long ? values.target_price <= entry : values.target_price >= entry) {
+      return { error: `The target for a ${long ? "long" : "short"} must be ${long ? "above" : "below"} the entry.` };
+    }
+  }
+  return { values: { ...values, stopsSent } };
+}
+
 // Mode from a query string or body. Missing means the fallback (live for
 // reads and new trades; the trade's current mode for updates).
 // Returns { mode } or { error }.
@@ -85,5 +114,6 @@ module.exports = {
   RESULTS,
   TRADE_COLUMNS,
   parseJournalFields,
+  parseStops,
   parseMode,
 };
