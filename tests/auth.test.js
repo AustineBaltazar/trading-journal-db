@@ -258,6 +258,16 @@ describe("POST /register", () => {
     expect(calls.find((c) => /INSERT INTO users/.test(c.sql)).params[2]).toMatch(/^\$argon2id\$/);
   });
 
+  test("per-IP sign-up limit counts only accounts created", async () => {
+    jest.spyOn(global, "fetch").mockImplementation(fetchReturning(""));
+    const send = (body) => request(app).post("/register").set("X-Forwarded-For", "203.0.113.20").send(body);
+    // Failed tries (weak password) never use up the limit
+    for (let i = 0; i < 12; i += 1) expect((await send({ ...valid, password: "short" })).status).toBe(400);
+    fakeDb([[/INSERT INTO users/, { rows: [{ id: 42, name: "Bro", email: "new@gmail.com" }] }], [/INSERT INTO tag_groups/, { rows: [{ id: 1 }] }]]);
+    for (let i = 0; i < 10; i += 1) expect((await send(valid)).status).toBe(201);
+    expect((await send(valid)).status).toBe(429);
+  });
+
   test("a taken email rolls back", async () => {
     jest.spyOn(global, "fetch").mockImplementation(fetchReturning(""));
     const calls = fakeDb([]);
