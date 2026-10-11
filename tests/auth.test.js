@@ -149,7 +149,7 @@ describe("POST /login", () => {
       .send({ email: " Bob@Gmail.com ", password: "correct-horse-candle", remember: true });
 
     expect(response.status).toBe(200);
-    expect(response.body.user).toEqual({ id: 7, name: "Bro", email: "bob@gmail.com" });
+    expect(response.body.user).toEqual({ id: 7, name: "Bro", email: "bob@gmail.com", demo: false });
     const cookie = response.headers["set-cookie"][0];
     expect(cookie).toMatch(/^mnq_session=[\w-]{43};/);
     expect(cookie).toMatch(/HttpOnly/);
@@ -263,13 +263,21 @@ describe("POST /login", () => {
 });
 
 describe("POST /register", () => {
-  const valid = { name: "Bro", email: "New@Gmail.com", password: "correct-horse-candle" };
+  const valid = { name: "Bro", email: "New@Gmail.com", password: "correct-horse-candle", acceptTerms: true };
 
   test("rejects a short password before doing any work", async () => {
     const calls = fakeDb([]);
     const response = await request(app).post("/register").send({ ...valid, password: "short" });
     expect(response.status).toBe(400);
     expect(response.body.error).toMatch(/at least 12/);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("needs the Terms accepted", async () => {
+    const calls = fakeDb([]);
+    const response = await request(app).post("/register").send({ ...valid, acceptTerms: false });
+    expect(response.status).toBe(400);
+    expect(response.body.error).toMatch(/Terms/);
     expect(calls).toHaveLength(0);
   });
 
@@ -352,7 +360,7 @@ describe("email links", () => {
     const calls = fakeDb([[/UPDATE email_tokens t SET used_at/, { rows: [{ ...linkUser, email_verified_at: null }] }]]);
     const response = await request(app).post("/verify-email").send({ token: TOKEN });
     expect(response.status).toBe(200);
-    expect(response.body.user).toEqual(linkUser);
+    expect(response.body.user).toEqual({ ...linkUser, demo: false });
     expect(response.headers["set-cookie"][0]).toMatch(/^mnq_session=/);
     expect(calls[0].params).toEqual([hashToken(TOKEN), "verify"]);
     expect(calls.some((c) => /SET email_verified_at = coalesce/.test(c.sql))).toBe(true);

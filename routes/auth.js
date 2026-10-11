@@ -21,8 +21,9 @@ const { loginLimiter, registerLimiter, emailLimiter } = require("../utils/rateLi
 const { issueToken, peekToken, consumeToken, shouldNotify } = require("../utils/emailTokens");
 const { sendMail } = require("../utils/mailer");
 const emails = require("../utils/emails");
+const { isDemo } = require("../utils/account");
 
-const publicUser = (user) => ({ id: user.id, name: user.name, email: user.email });
+const publicUser = (user) => ({ id: user.id, name: user.name, email: user.email, demo: isDemo(user.email) });
 const client = (req) => ({ ip: req.ip, userAgent: req.get("user-agent") });
 const CHECK_EMAIL = { message: "Check your email." };
 const BAD_LINK = { error: "This link has expired or was already used.", expired: true };
@@ -83,6 +84,9 @@ router.post("/register", registerLimiter, async (req, res) => {
   }
   const basic = passwordProblem(password, email);
   if (basic) return res.status(400).json({ error: basic });
+  if (req.body?.acceptTerms !== true) {
+    return res.status(400).json({ error: "Please accept the Terms and Privacy policy." });
+  }
   if (!(await verifyTurnstile(req.body?.turnstileToken, req.ip))) {
     return res.status(400).json({ error: "Please complete the check below.", captchaRequired: true });
   }
@@ -96,7 +100,7 @@ router.post("/register", registerLimiter, async (req, res) => {
     db = await pool.connect();
     await db.query("BEGIN");
     const result = await db.query(
-      `INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3)
+      `INSERT INTO users (name, email, password_hash, terms_accepted_at) VALUES ($1, $2, $3, now())
        ON CONFLICT (email) DO NOTHING
        RETURNING id, name, email`,
       [name, email, passwordHash],
