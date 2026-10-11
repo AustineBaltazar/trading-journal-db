@@ -20,11 +20,14 @@ services:
       DB_NAME: trading_journal
       DB_USER: postgres
       DB_PASSWORD: ${DB_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET}
       AWS_REGION: ${AWS_REGION:-ap-southeast-1}
       IMAGES_BUCKET: ${IMAGES_BUCKET:-}
       APP_ORIGINS: ${APP_ORIGINS:-https://bro-trading.duckdns.org}
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
+      APP_URL: ${APP_URL:-https://bro-trading.duckdns.org}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-MNQ Journal <brotradingjournal@gmail.com>}
     ports:
       - "127.0.0.1:3001:3001"
     depends_on:

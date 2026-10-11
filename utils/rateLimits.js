@@ -22,4 +22,7 @@ const registerLimiter = perIp(60, 10, "Too many new accounts from your network. 
   skipFailedRequests: true,
 });
 
-module.exports = { perIp, loginLimiter, registerLimiter };
+// Forgot password and "resend the link": each sends an email
+const emailLimiter = perIp(60, 10, "Too many email requests from your network. Please try again later.");
+
+module.exports = { perIp, loginLimiter, registerLimiter, emailLimiter };
