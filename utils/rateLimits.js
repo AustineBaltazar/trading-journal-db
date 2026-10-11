@@ -2,7 +2,7 @@ const { rateLimit } = require("express-rate-limit");
 
 // Per-IP limits. They only count requests that came through Nginx (which sets
 // X-Forwarded-For); without it every visitor would share Nginx's address.
-function perIp(windowMinutes, limit, error) {
+function perIp(windowMinutes, limit, error, options = {}) {
   return rateLimit({
     windowMs: windowMinutes * 60 * 1000,
     limit,
@@ -10,10 +10,16 @@ function perIp(windowMinutes, limit, error) {
     legacyHeaders: false,
     skip: (req) => !req.headers["x-forwarded-for"],
     message: { error },
+    ...options,
   });
 }
 
+// Every login try counts: failed passwords are what this limits
 const loginLimiter = perIp(15, 30, "Too many login attempts from your network. Please wait a few minutes.");
-const registerLimiter = perIp(60, 5, "Too many sign-ups from your network. Please try again later.");
+// Only accounts actually created count, so typos and a failed human check don't lock
+// out a whole household or office; Nginx already slows repeated tries
+const registerLimiter = perIp(60, 10, "Too many new accounts from your network. Please try again later.", {
+  skipFailedRequests: true,
+});
 
 module.exports = { perIp, loginLimiter, registerLimiter };
