@@ -155,7 +155,9 @@ router.post("/login", loginLimiter, async (req, res) => {
     await startSession(res, req, user.id, remember);
 
     // `token` keeps tabs opened before the cookie switch working for one release
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: "1d" });
+    const token = process.env.JWT_SECRET
+      ? jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: "1d" })
+      : undefined;
     res.json({ user: publicUser(user), token });
   } catch (err) {
     console.error(err);
