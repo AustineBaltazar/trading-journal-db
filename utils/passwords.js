@@ -14,6 +14,11 @@ function hashPassword(password) {
 // Accounts made before Argon2 still have bcrypt hashes; those pass with needsRehash
 // so the login can upgrade them.
 async function verifyPassword(storedHash, password) {
+  // Google-only accounts have no password: take the usual time, then fail
+  if (!storedHash) {
+    await burnPasswordCheck(password);
+    return { ok: false, needsRehash: false };
+  }
   if (storedHash.startsWith("$2")) {
     return { ok: await bcrypt.compare(password, storedHash), needsRehash: true };
   }

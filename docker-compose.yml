@@ -24,6 +24,7 @@ services:
       IMAGES_BUCKET: ${IMAGES_BUCKET:-}
       APP_ORIGINS: ${APP_ORIGINS:-https://bro-trading.duckdns.org}
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       APP_URL: ${APP_URL:-https://bro-trading.duckdns.org}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
