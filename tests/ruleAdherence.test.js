@@ -1,10 +1,12 @@
 const request = require("supertest");
-const jwt = require("jsonwebtoken");
 
-process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret";
+jest.mock("../utils/sessions", () => ({
+  ...jest.requireActual("../utils/sessions"),
+  findSession: jest.fn(async () => ({ id: 1, user_id: 7 })),
+}));
 const pool = require("../db");
 const app = require("../app");
-const auth = () => ({ Authorization: `Bearer ${jwt.sign({ id: 7 }, process.env.JWT_SECRET)}` });
+const auth = () => ({ Cookie: "mnq_session=test-session-token-0123456789" });
 
 afterEach(() => jest.restoreAllMocks());
 
