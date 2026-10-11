@@ -22,6 +22,7 @@ const { issueToken, peekToken, consumeToken, shouldNotify } = require("../utils/
 const { sendMail } = require("../utils/mailer");
 const emails = require("../utils/emails");
 const { isDemo } = require("../utils/account");
+const { verifyGoogleCredential } = require("../utils/google");
 
 const publicUser = (user) => ({ id: user.id, name: user.name, email: user.email, demo: isDemo(user.email) });
 const client = (req) => ({ ip: req.ip, userAgent: req.get("user-agent") });
@@ -35,6 +36,20 @@ async function startSession(res, req, userId, remember) {
 
 function mail(user, { subject, text, html }) {
   sendMail({ to: user.email, subject, text, html });
+}
+
+// A browser this account has never logged in from gets an email, unless it's the first login
+async function notifyNewDevice(req, user) {
+  const userAgent = (req.get("user-agent") || "").slice(0, 300);
+  const seen = await pool.query(
+    `SELECT bool_or(user_agent = $2) AS same_device, count(*)::int AS logins
+     FROM login_attempts WHERE user_id = $1 AND succeeded`,
+    [user.id, userAgent],
+  );
+  const { same_device: sameDevice, logins } = seen.rows[0] ?? {};
+  if (logins > 0 && !sameDevice && (await shouldNotify(pool, user.id, "new-login"))) {
+    mail(user, emails.newLogin(user.name, emails.describeDevice(userAgent), new Date()));
+  }
 }
 
 async function sendVerifyLink(user) {
@@ -298,24 +313,74 @@ router.post("/login", loginLimiter, async (req, res) => {
         .catch((err) => console.error("Password upgrade failed:", err.message));
     }
 
-    // A browser this account has never logged in from gets an email, unless it's the first login
-    const userAgent = (req.get("user-agent") || "").slice(0, 300);
-    const seen = await pool.query(
-      `SELECT bool_or(user_agent = $2) AS same_device, count(*)::int AS logins
-       FROM login_attempts WHERE user_id = $1 AND succeeded`,
-      [user.id, userAgent],
-    );
-    const { same_device: sameDevice, logins } = seen.rows[0] ?? {};
-    if (logins > 0 && !sameDevice && (await shouldNotify(pool, user.id, "new-login"))) {
-      mail(user, emails.newLogin(user.name, emails.describeDevice(userAgent), new Date()));
-    }
-
+    await notifyNewDevice(req, user);
     await recordAttempt(pool, { email, userId: user.id, succeeded: true, ...client(req) });
     await startSession(res, req, user.id, remember);
     res.json({ user: publicUser(user) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Something went wrong logging in." });
+  }
+});
+
+// "Continue with Google". The first time, the page asks for a name and the Terms, then
+// calls again with acceptTerms. An email that already has a password account is only
+// connected from the Account page after logging in with that password, so nobody can
+// take an account over just by owning a Google login with the same address.
+router.post("/auth/google", loginLimiter, async (req, res) => {
+  let db;
+  try {
+    const google = await verifyGoogleCredential(req.body?.credential);
+    if (!google) return res.status(401).json({ error: "Google sign-in didn't work. Please try again." });
+
+    let user = (await pool.query("SELECT id, name, email FROM users WHERE google_sub = $1", [google.sub])).rows[0];
+    let created = false;
+    if (!user) {
+      const sameEmail = await pool.query("SELECT id FROM users WHERE email = $1", [google.email]);
+      if (sameEmail.rows[0]) {
+        return res.status(409).json({
+          error:
+            "You already have an account with this email. Log in with your password, then connect Google in Account & security.",
+          linkRequired: true,
+        });
+      }
+      if (req.body?.acceptTerms !== true) {
+        return res.json({ needsSignup: true, email: google.email, name: google.name });
+      }
+      const name = typeof req.body?.name === "string" && req.body.name.trim() ? req.body.name.trim() : google.name;
+      if (name.length > 60) return res.status(400).json({ error: "Please keep your name under 60 characters." });
+
+      db = await pool.connect();
+      await db.query("BEGIN");
+      // Google already confirmed the address, so no confirmation link is needed
+      const result = await db.query(
+        `INSERT INTO users (name, email, password_hash, google_sub, google_email, email_verified_at, terms_accepted_at)
+         VALUES ($1, $2, NULL, $3, $4, now(), now())
+         ON CONFLICT DO NOTHING
+         RETURNING id, name, email`,
+        [name, google.email, google.sub, google.email],
+      );
+      user = result.rows[0];
+      if (!user) {
+        await db.query("ROLLBACK");
+        return res.status(409).json({ error: "That account was just created. Please try again.", linkRequired: true });
+      }
+      await addStarterLists(db, user.id);
+      await db.query("COMMIT");
+      created = true;
+    } else {
+      await notifyNewDevice(req, user);
+    }
+
+    await recordAttempt(pool, { email: user.email, userId: user.id, succeeded: true, ...client(req) });
+    await startSession(res, req, user.id, true);
+    res.status(created ? 201 : 200).json({ user: publicUser(user) });
+  } catch (err) {
+    await db?.query("ROLLBACK").catch(() => {});
+    console.error(err);
+    res.status(500).json({ error: "Something went wrong signing in with Google." });
+  } finally {
+    db?.release();
   }
 });
 

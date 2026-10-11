@@ -10,6 +10,14 @@ const { STORAGE_LIMIT_BYTES, usedStorageBytes, maskIp, toCsv } = require("../uti
 const { describeDevice } = require("../utils/emails");
 const emails = require("../utils/emails");
 const { sendMail } = require("../utils/mailer");
+const { verifyGoogleCredential } = require("../utils/google");
+
+// Accounts without a password prove it's them by signing in with Google again
+async function confirmedWithGoogle(user, credential) {
+  if (!user.google_sub) return false;
+  const google = await verifyGoogleCredential(credential);
+  return Boolean(google && google.sub === user.google_sub);
+}
 
 const fail = (res, message) => (err) => {
   console.error(err);
@@ -18,7 +26,7 @@ const fail = (res, message) => (err) => {
 
 async function currentUser(userId) {
   const result = await pool.query(
-    "SELECT id, name, email, password_hash, email_verified_at, created_at FROM users WHERE id = $1",
+    "SELECT id, name, email, password_hash, google_sub, google_email, email_verified_at, created_at FROM users WHERE id = $1",
     [userId],
   );
   return result.rows[0];
@@ -31,6 +39,7 @@ router.get("/account", requireAuth, async (req, res) => {
     res.json({
       user: { id: user.id, name: user.name, email: user.email, demo: req.isDemo },
       emailConfirmed: Boolean(user.email_verified_at),
+      signIn: { password: Boolean(user.password_hash), google: user.google_email || null },
       createdAt: user.created_at,
       storage: { usedBytes: await usedStorageBytes(pool, req.userId), limitBytes: STORAGE_LIMIT_BYTES },
     });
@@ -62,13 +71,20 @@ router.post("/account/password", requireAuth, async (req, res) => {
     if (state.retryAfter) {
       return res.status(429).json({ error: "Too many wrong passwords. Please wait a few minutes.", retryAfter: state.retryAfter });
     }
-    const check =
-      typeof currentPassword === "string" && currentPassword
-        ? await verifyPassword(user.password_hash, currentPassword)
-        : { ok: false };
-    if (!check.ok) {
-      await recordAttempt(pool, { email: user.email, userId: user.id, succeeded: false, ip: req.ip, userAgent: req.get("user-agent") });
-      return res.status(400).json({ error: "Your current password is wrong." });
+    if (!user.password_hash) {
+      // Setting a first password on a Google account
+      if (!(await confirmedWithGoogle(user, req.body?.googleCredential))) {
+        return res.status(400).json({ error: "Please confirm with Google first.", googleRequired: true });
+      }
+    } else {
+      const check =
+        typeof currentPassword === "string" && currentPassword
+          ? await verifyPassword(user.password_hash, currentPassword)
+          : { ok: false };
+      if (!check.ok) {
+        await recordAttempt(pool, { email: user.email, userId: user.id, succeeded: false, ip: req.ip, userAgent: req.get("user-agent") });
+        return res.status(400).json({ error: "Your current password is wrong." });
+      }
     }
     const problem =
       passwordProblem(newPassword, user.email) ||
@@ -86,6 +102,40 @@ router.post("/account/password", requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     fail(res, "Something went wrong changing your password.")(err);
+  }
+});
+
+// Connect a Google account (you're already logged in, so this proves both sides)
+router.post("/account/google", requireAuth, async (req, res) => {
+  try {
+    const google = await verifyGoogleCredential(req.body?.credential);
+    if (!google) return res.status(400).json({ error: "Google sign-in didn't work. Please try again." });
+    const taken = await pool.query("SELECT id FROM users WHERE google_sub = $1 AND id <> $2", [google.sub, req.userId]);
+    if (taken.rows[0]) {
+      return res.status(409).json({ error: "That Google account is already connected to another journal." });
+    }
+    await pool.query("UPDATE users SET google_sub = $1, google_email = $2 WHERE id = $3", [
+      google.sub,
+      google.email,
+      req.userId,
+    ]);
+    res.json({ google: google.email });
+  } catch (err) {
+    fail(res, "Something went wrong connecting Google.")(err);
+  }
+});
+
+// Disconnect Google; only when a password is set, so the account keeps a way in
+router.delete("/account/google", requireAuth, async (req, res) => {
+  try {
+    const user = await currentUser(req.userId);
+    if (!user.password_hash) {
+      return res.status(400).json({ error: "Set a password first, so you can still log in without Google." });
+    }
+    await pool.query("UPDATE users SET google_sub = NULL, google_email = NULL WHERE id = $1", [req.userId]);
+    res.status(204).end();
+  } catch (err) {
+    fail(res, "Something went wrong disconnecting Google.")(err);
   }
 });
 
@@ -243,10 +293,16 @@ router.delete("/account", requireAuth, async (req, res) => {
   let db;
   try {
     const user = await currentUser(req.userId);
-    const check = typeof password === "string" && password ? await verifyPassword(user.password_hash, password) : { ok: false };
-    if (!check.ok) {
-      await recordAttempt(pool, { email: user.email, userId: user.id, succeeded: false, ip: req.ip, userAgent: req.get("user-agent") });
-      return res.status(400).json({ error: "Your password is wrong." });
+    if (!user.password_hash) {
+      if (!(await confirmedWithGoogle(user, req.body?.googleCredential))) {
+        return res.status(400).json({ error: "Please confirm with Google first.", googleRequired: true });
+      }
+    } else {
+      const check = typeof password === "string" && password ? await verifyPassword(user.password_hash, password) : { ok: false };
+      if (!check.ok) {
+        await recordAttempt(pool, { email: user.email, userId: user.id, succeeded: false, ip: req.ip, userAgent: req.get("user-agent") });
+        return res.status(400).json({ error: "Your password is wrong." });
+      }
     }
 
     const keys = (
