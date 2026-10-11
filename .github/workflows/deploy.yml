@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
 
+# One deploy at a time from this repo
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -28,7 +33,12 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          # Both repos deploy the same containers: the lock makes a second deploy wait
+          # for the first instead of colliding. "up --build" only restarts what changed,
+          # so the database keeps running.
           script: |
-            cd ~/trading-journal && git pull origin main
-            cd ~/trading-journal-frontend && git pull origin main
-            cd ~/trading-journal && docker compose down && docker compose up -d --build
+            flock -w 900 /tmp/mnq-journal-deploy.lock bash -ec '
+              cd ~/trading-journal && git pull origin main
+              cd ~/trading-journal-frontend && git pull origin main
+              cd ~/trading-journal && docker compose up -d --build --remove-orphans
+            '
