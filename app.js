@@ -39,6 +39,7 @@ const tagsRoutes = require("./routes/tags");
 const accountRoutes = require("./routes/account");
 const feedbackRoutes = require("./routes/feedback");
 const adminRoutes = require("./routes/admin");
+const searchRoutes = require("./routes/search");
 
 app.get("/", (req, res) => {
   res.send("My trading journal API is running!");
@@ -75,5 +76,6 @@ app.use("/", tagsRoutes);
 app.use("/", accountRoutes);
 app.use("/", feedbackRoutes);
 app.use("/", adminRoutes);
+app.use("/", searchRoutes);
 
 module.exports = app;
