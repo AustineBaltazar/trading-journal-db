@@ -14,7 +14,8 @@ const {
   userImagePrefix,
 } = require("../utils/journal");
 const s3 = require("../utils/s3");
-const { storageProblem } = require("../utils/account");
+const { uploadProblem, reserveUpload, confirmUpload } = require("../utils/uploads");
+const { uploadLinkLimiter, capNewJournalDay } = require("../utils/limits");
 
 const ENTRY_COLUMNS = `id, mode, entry_date::text, bias, bias_reason, key_levels, plan, news, focus,
   followed_plan, mood, day_grade, went_well, to_fix, lesson, updated_at`;
@@ -111,7 +112,7 @@ router.get("/journal/:date", requireAuth, async (req, res) => {
 });
 
 // Creates or updates the day's entry with whichever fields are sent (auto-save)
-router.put("/journal/:date", requireAuth, async (req, res) => {
+router.put("/journal/:date", requireAuth, capNewJournalDay, async (req, res) => {
   const p = dayParams(req, res);
   if (!p) return;
   const { values, error } = parseEntryFields(req.body || {});
@@ -138,7 +139,12 @@ router.put("/journal/:date", requireAuth, async (req, res) => {
 });
 
 // Step 1 of an upload: a short-lived signed link the browser PUTs the file to
-router.post("/journal/:date/images/upload-url", requireAuth, async (req, res) => {
+router.post(
+  "/journal/:date/images/upload-url",
+  requireAuth,
+  uploadLinkLimiter,
+  capNewJournalDay,
+  async (req, res) => {
   const p = dayParams(req, res);
   if (!p) return;
   if (!s3.imagesConfigured()) return res.status(503).json({ error: "Image uploads aren't set up yet." });
@@ -153,9 +159,10 @@ router.post("/journal/:date/images/upload-url", requireAuth, async (req, res) =>
     if (count.rows[0].n >= MAX_IMAGES_PER_SECTION) {
       return res.status(400).json({ error: `Up to ${MAX_IMAGES_PER_SECTION} images per section.` });
     }
-    const full = await storageProblem(pool, req.userId, img.size);
+    const full = await uploadProblem(pool, req.userId, img.size);
     if (full) return res.status(400).json({ error: full });
     const key = `${userImagePrefix(req.userId)}${entryId}/${crypto.randomUUID()}.${img.ext}`;
+    await reserveUpload(pool, req.userId, key, img.size);
     res.json({ key, uploadUrl: await s3.uploadUrl(key, img.contentType, img.size) });
   } catch (err) {
     console.error(err);
@@ -186,6 +193,7 @@ router.post("/journal/:date/images", requireAuth, async (req, res) => {
     if (!head) return res.status(400).json({ error: "The upload didn't finish. Try again." });
     if (head.size > MAX_IMAGE_BYTES || !["image/png", "image/jpeg", "image/webp"].includes(head.contentType)) {
       await s3.deleteObject(key);
+      await confirmUpload(pool, key);
       return res.status(400).json({ error: "Images must be PNG, JPG or WebP, 5 MB or smaller." });
     }
 
@@ -196,6 +204,7 @@ router.post("/journal/:date/images", requireAuth, async (req, res) => {
        RETURNING id, section, caption, s3_key, created_at`,
       [entryId, section, key, caption, head.contentType, head.size],
     );
+    await confirmUpload(pool, key);
     const [image] = await withViewUrls(result.rows);
     res.status(201).json(image);
   } catch (err) {

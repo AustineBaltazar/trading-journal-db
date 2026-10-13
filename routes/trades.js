@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db");
 const requireAuth = require("../middleware/auth");
+const { capRows } = require("../utils/limits");
 const { withPnl, summarize } = require("../utils/outcome");
 const s3 = require("../utils/s3");
 const {
@@ -99,7 +100,7 @@ router.get("/", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, capRows("trades"), async (req, res) => {
   try {
     const {
       trade_date,

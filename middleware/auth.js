@@ -1,6 +1,7 @@
 const pool = require("../db");
 const { COOKIE_NAME, findSession } = require("../utils/sessions");
 const { isDemo, isAdmin, DEMO_READ_ONLY } = require("../utils/account");
+const { writeLimiter } = require("../utils/limits");
 
 // Writes the demo account may still make
 const DEMO_ALLOWED = new Set(["/feedback"]);
@@ -18,6 +19,7 @@ async function requireAuth(req, res, next) {
         if (req.isDemo && !["GET", "HEAD"].includes(req.method) && !DEMO_ALLOWED.has(req.path)) {
           return res.status(403).json(DEMO_READ_ONLY);
         }
+        if (!["GET", "HEAD"].includes(req.method)) return writeLimiter(req, res, next);
         return next();
       }
     } catch (err) {
