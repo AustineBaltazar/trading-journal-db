@@ -2,6 +2,7 @@ const { rateLimit } = require("express-rate-limit");
 
 // Most of anything one account can have. Far above real use; they stop a script
 // from filling the database. A tag's account is found through its group.
+// To change a limit, edit it here; the error message picks up the new number.
 const MAX_ROWS = {
   trades: { limit: 20000, label: "trades" },
   journal_entries: { limit: 5000, label: "journal days" },
@@ -58,7 +59,7 @@ function capRows(table) {
 // Journal days are created by saving one; only a new day counts toward the limit
 async function capNewJournalDay(req, res, next) {
   // A bad date is answered by the route itself
-  if (!/^d{4}-d{2}-d{2}$/.test(req.params.date)) return next();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(req.params.date)) return next();
   try {
     const db = require("../db");
     const mode = req.query.mode === "backtest" ? "backtest" : "live";

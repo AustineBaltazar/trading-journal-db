@@ -121,6 +121,14 @@ describe("limits per account", () => {
     expect(calls.some((c) => /count\(\*\)::int AS n FROM journal_entries/.test(c.sql))).toBe(false);
   });
 
+  it("a new journal day past the limit is refused", async () => {
+    const calls = fakeDb([[/count\(\*\)::int AS n FROM journal_entries/, { rows: [{ n: 5000 }] }]]);
+    const res = await request(app).put("/journal/2026-10-01").set(COOKIE).send({ plan: "x" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/5,000 journal days/);
+    expect(calls.some((c) => /INSERT INTO journal_entries/.test(c.sql))).toBe(false);
+  });
+
   it("too many saves in 10 minutes are slowed down, per account", async () => {
     mockSession = { id: "9", user_id: 777, email: "bot@gmail.com" };
     fakeDb([[/count\(\*\)/, { rows: [{ n: 0 }] }]]);
