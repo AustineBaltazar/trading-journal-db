@@ -1,3 +1,4 @@
+// Express app for the trading journal API: middleware, then every route group.
 const express = require("express");
 const app = express();
 const cors = require("cors");
