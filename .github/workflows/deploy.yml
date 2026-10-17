@@ -19,7 +19,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install dependencies
         run: npm install
@@ -35,10 +35,13 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           # Both repos deploy the same containers: the lock makes a second deploy wait
           # for the first instead of colliding. "up --build" only restarts what changed,
-          # so the database keeps running.
+          # so the database keeps running. Old build cache and replaced images are then
+          # cleared (a week of cache is kept) so the disk doesn't fill up.
           script: |
             flock -w 900 /tmp/mnq-journal-deploy.lock bash -ec '
               cd ~/trading-journal && git pull origin main
               cd ~/trading-journal-frontend && git pull origin main
               cd ~/trading-journal && docker compose up -d --build --remove-orphans
+              docker image prune -f
+              docker builder prune -f --filter until=168h
             '
