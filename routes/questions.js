@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db");
 const requireAuth = require("../middleware/auth");
+const { capRows } = require("../utils/limits");
 
 router.get("/", requireAuth, async (req, res) => {
   try {
@@ -16,7 +17,7 @@ router.get("/", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, capRows("questions"), async (req, res) => {
   try {
     const { question_text } = req.body;
     const result = await pool.query(

@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db");
 const requireAuth = require("../middleware/auth");
+const { capRows } = require("../utils/limits");
 const { parseMode } = require("../utils/tradeFields");
 const { parseMistakeName, parseMistakeIds } = require("../utils/mistakes");
 
@@ -30,7 +31,7 @@ router.get("/mistakes", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/mistakes", requireAuth, async (req, res) => {
+router.post("/mistakes", requireAuth, capRows("mistakes"), async (req, res) => {
   const { name, error } = parseMistakeName(req.body.name);
   if (error) return res.status(400).json({ error });
   try {

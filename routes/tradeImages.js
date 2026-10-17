@@ -10,7 +10,8 @@ const {
   userTradeImagePrefix,
 } = require("../utils/journal");
 const s3 = require("../utils/s3");
-const { storageProblem } = require("../utils/account");
+const { uploadProblem, reserveUpload, confirmUpload } = require("../utils/uploads");
+const { uploadLinkLimiter } = require("../utils/limits");
 
 const MAX_IMAGES_PER_TRADE = 6;
 
@@ -24,7 +25,7 @@ async function ownsTrade(tradeId, userId) {
 }
 
 // Step 1 of an upload: a short-lived signed link the browser PUTs the file to
-router.post("/trades/:id/images/upload-url", requireAuth, async (req, res) => {
+router.post("/trades/:id/images/upload-url", requireAuth, uploadLinkLimiter, async (req, res) => {
   if (!s3.imagesConfigured()) return res.status(503).json({ error: "Image uploads aren't set up yet." });
   const file = parseImageFile(req.body);
   if (file.error) return res.status(400).json({ error: file.error });
@@ -35,9 +36,10 @@ router.post("/trades/:id/images/upload-url", requireAuth, async (req, res) => {
     if (count.rows[0].n >= MAX_IMAGES_PER_TRADE) {
       return res.status(400).json({ error: `Up to ${MAX_IMAGES_PER_TRADE} screenshots per trade.` });
     }
-    const full = await storageProblem(pool, req.userId, file.size);
+    const full = await uploadProblem(pool, req.userId, file.size);
     if (full) return res.status(400).json({ error: full });
     const key = `${userTradeImagePrefix(req.userId)}${tradeId}/${crypto.randomUUID()}.${file.ext}`;
+    await reserveUpload(pool, req.userId, key, file.size);
     res.json({ key, uploadUrl: await s3.uploadUrl(key, file.contentType, file.size) });
   } catch (err) {
     console.error(err);
@@ -60,6 +62,7 @@ router.post("/trades/:id/images", requireAuth, async (req, res) => {
     if (!head) return res.status(400).json({ error: "The upload didn't finish. Try again." });
     if (head.size > MAX_IMAGE_BYTES || !IMAGE_TYPES[head.contentType]) {
       await s3.deleteObject(key);
+      await confirmUpload(pool, key);
       return res.status(400).json({ error: "Images must be PNG, JPG or WebP, 5 MB or smaller." });
     }
 
@@ -70,6 +73,7 @@ router.post("/trades/:id/images", requireAuth, async (req, res) => {
        RETURNING id, caption, created_at`,
       [tradeId, key, cleanCaption(req.body?.caption), head.contentType, head.size],
     );
+    await confirmUpload(pool, key);
     const image = result.rows[0];
     res.status(201).json({
       id: image.id,
