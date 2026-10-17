@@ -1,7 +1,7 @@
 const SESSIONS = ["Asian", "London", "New York AM", "New York PM"];
 const EMOTIONS = ["Confident", "Anxious", "FOMO", "Revenge", "Calm", "Hesitant"];
 const GRADES = ["A+", "A", "B+", "B", "C+", "C", "D", "F"];
-const MODES = ["live", "backtest"];
+const MODES = ["live", "backtest", "eval"];
 const RESULTS = ["win", "loss", "be"];
 
 // 24-hour HH:MM, optionally with :SS (what <input type="time"> can send)

@@ -242,6 +242,9 @@ router.get("/account/export", requireAuth, async (req, res) => {
         `SELECT g.name, coalesce(json_agg(t.name ORDER BY t.id) FILTER (WHERE t.id IS NOT NULL), '[]') AS tags
          FROM tag_groups g LEFT JOIN tags t ON t.group_id = g.id WHERE g.user_id = $1 GROUP BY g.id ORDER BY g.position`,
       ),
+      evals: await q(
+        "SELECT name, account_size, profit_target, max_drawdown, drawdown_type, daily_loss_limit, min_days, consistency_pct, started_on::text, ended_on::text, result, fail_reason FROM eval_attempts WHERE user_id = $1 ORDER BY eval_attempts.started_on",
+      ),
       journal: await q("SELECT *, entry_date::text AS entry_date FROM journal_entries WHERE user_id = $1 ORDER BY journal_entries.entry_date"),
       screenshots: [
         ...(await q(
